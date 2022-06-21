@@ -1,0 +1,62 @@
+name: 'CMake & CTest'
+description: 'Composite CMake build and CTest test workflow step for a hybrid Python project'
+inputs:
+  os:
+    required: true
+    description: The runner operating system
+  python-version:
+    required: true
+    description: The Python version to use
+  cmake-type:
+    required: true
+    description: The build type target, sets CMAKE_BUILD_TYPE
+
+runs:
+  using: "composite"
+  steps:
+    -
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        python-version: ${{ inputs.python-version }}
+        activate-environment: env
+        channels: conda-forge,defaults
+        mamba-version: "*"
+    -
+      shell: bash -l {0}
+      run: mamba install hdf5 numpy cmake
+    -
+      if: startsWith(inputs.os, 'ubuntu')
+      shell: bash -l {0}
+      run: mamba install gcc gxx
+    -
+      if: startsWith(inputs.os, 'macos')
+      shell: bash -l {0}
+      run: mamba install llvm-openmp==11.1.0
+    -
+      name: Update python tools
+      shell: bash -l {0}
+      run: python -m pip install --upgrade pip setuptools setuptools_scm
+    -
+      shell: bash -l {0}
+      run: echo "pythonInterpreter=`which python`" >> $GITHUB_ENV
+    -
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    -
+      name: configure
+      shell: bash -l {0}
+      run: cmake -S . -B build -D CMAKE_BUILD_TYPE=${{ inputs.cmake-type }} -D PYTHON3_EXECUTABLE=${{ env.pythonInterpreter }}
+    -
+      name: Get number of CPU cores
+      uses: SimenB/github-actions-cpu-cores@v1
+      id: cpu-cores
+    -
+      name: build
+      shell: bash -l {0}
+      run: cmake --build build --config ${{ inputs.cmake-type }} --parallel ${{ steps.cpu-cores.outputs.count }}
+    -
+      name: test
+      shell: bash -l {0}
+      working-directory: build
+      run: ctest -C ${{ inputs.cmake-type }} --output-on-failure --parallel ${{ steps.cpu-cores.outputs.count }}
